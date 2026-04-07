@@ -24,8 +24,12 @@ const PORT = process.env.PORT || 5000;
 // Eagerly connect on startup so "MongoDB connected" logs immediately
 connectDB()
   .then(() => {
-    // Auto-seed in development — skipped automatically if data already exists
-    if (process.env.NODE_ENV !== "production") {
+    // Auto-seed in development always
+    // In production: only if ENABLE_SEED=true (set once, then remove)
+    const shouldSeed =
+      process.env.NODE_ENV !== "production" ||
+      process.env.ENABLE_SEED === "true";
+    if (shouldSeed) {
       seedDatabase().catch((err) =>
         console.error("Seed error:", err.message)
       );
@@ -47,8 +51,11 @@ app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (Postman, curl, server-to-server)
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error("Not allowed by CORS"));
+      if (!origin) return callback(null, true);
+      // Allow any Vercel deployment URL + explicitly configured origins
+      const isVercel = origin.endsWith(".vercel.app");
+      if (isVercel || allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,
   })
