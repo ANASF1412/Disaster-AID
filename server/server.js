@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 
 import connectDB from "./config/db.js";
+import seedDatabase from "./utils/seed.js";
 import { globalErrorHandler } from "./middleware/errorHandler.js";
 
 import authRoutes from "./routes/auth.js";
@@ -21,7 +22,16 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Eagerly connect on startup so "MongoDB connected" logs immediately
-connectDB().catch((err) => console.error("Startup DB connection failed:", err.message));
+connectDB()
+  .then(() => {
+    // Auto-seed in development — skipped automatically if data already exists
+    if (process.env.NODE_ENV !== "production") {
+      seedDatabase().catch((err) =>
+        console.error("Seed error:", err.message)
+      );
+    }
+  })
+  .catch((err) => console.error("Startup DB connection failed:", err.message));
 
 // Security headers
 app.use(helmet());
@@ -59,7 +69,9 @@ app.use(
   })
 );
 
-// Connect DB on every cold start (Vercel serverless safe)
+// Vercel serverless: ensure DB is connected on every cold-start invocation
+// In dev the eager connectDB() above already handles this, but this middleware
+// guarantees reconnection after Vercel function recycling in production.
 app.use(async (_req, _res, next) => {
   try {
     await connectDB();

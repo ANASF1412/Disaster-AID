@@ -35,7 +35,7 @@ export const getDispatches = async (req, res) => {
 
   const [dispatches, total] = await Promise.all([
     Dispatch.find(filter)
-      .populate("volunteerId", "availability")
+      .populate({ path: "volunteerId", populate: { path: "userId", select: "name email" } })
       .populate("centerId", "name status")
       .skip(skip)
       .limit(Number(limit))

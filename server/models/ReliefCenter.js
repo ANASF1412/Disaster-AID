@@ -26,10 +26,6 @@ const reliefCenterSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: [0, "Current load cannot be negative"],
-      validate: {
-        validator: function (v) { return v <= this.capacity; },
-        message: "Current load cannot exceed capacity",
-      },
     },
     contactInfo: { type: String, trim: true },
     status: { type: String, enum: ["active", "full", "inactive"], default: "active" },

@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import Inventory from "../models/Inventory.js";
 import ReliefCenter from "../models/ReliefCenter.js";
 import Log from "../models/Log.js";
@@ -53,43 +52,52 @@ export const updateInventoryItem = async (req, res) => {
   return successResponse(res, item, "Inventory updated");
 };
 
-// Atomic bulk update — uses MongoDB session to prevent race conditions
+// Sequential bulk update with manual rollback — M0 Atlas compatible (no transactions)
 export const bulkUpdateInventory = async (req, res) => {
   const { updates } = req.body; // [{ id, quantity }]
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Step 1: Validate all IDs exist before touching any document
+  const existing = await Inventory.find({
+    _id: { $in: updates.map((u) => u.id) },
+  }).select("_id quantity");
+
+  if (existing.length !== updates.length) {
+    return errorResponse(res, "One or more inventory items not found — no changes applied", 404);
+  }
+
+  // Step 2: Save original quantities for rollback
+  const originals = existing.map((doc) => ({ id: doc._id.toString(), quantity: doc.quantity }));
+
+  // Step 3: Apply updates sequentially, tracking what succeeded
+  const results = [];
+  const applied = [];
 
   try {
-    const results = await Promise.all(
-      updates.map(({ id, quantity }) =>
-        Inventory.findByIdAndUpdate(
-          id,
-          { quantity, lastUpdated: new Date() },
-          { new: true, runValidators: true, session }
-        )
+    for (const { id, quantity } of updates) {
+      const updated = await Inventory.findByIdAndUpdate(
+        id,
+        { quantity, lastUpdated: new Date() },
+        { new: true, runValidators: true }
+      );
+      results.push(updated);
+      applied.push(id);
+    }
+  } catch (err) {
+    // Step 4: Manual rollback — restore only the docs we already changed
+    const rollbackTargets = originals.filter((o) => applied.includes(o.id));
+    await Promise.allSettled(
+      rollbackTargets.map(({ id, quantity }) =>
+        Inventory.findByIdAndUpdate(id, { quantity, lastUpdated: new Date() })
       )
     );
-
-    const missing = results.some((r) => r === null);
-    if (missing) {
-      await session.abortTransaction();
-      return errorResponse(res, "One or more inventory items not found — no changes applied", 404);
-    }
-
-    await session.commitTransaction();
-
-    await Log.create({
-      action: "INVENTORY_BULK_UPDATED",
-      user: req.user.id,
-      metadata: { count: updates.length },
-    });
-
-    return successResponse(res, results, `${results.length} items updated`);
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
+    return errorResponse(res, `Bulk update failed after ${applied.length} writes — changes rolled back`, 500, err);
   }
+
+  await Log.create({
+    action: "INVENTORY_BULK_UPDATED",
+    user: req.user.id,
+    metadata: { count: updates.length },
+  });
+
+  return successResponse(res, results, `${results.length} items updated`);
 };

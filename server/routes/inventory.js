@@ -16,9 +16,10 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 
 const router = Router();
 
+// bulk-update MUST be before /:id — otherwise Express matches "bulk-update" as an id
+router.put("/bulk-update", auth, authorize("admin", "coordinator"), validate(bulkInventorySchema), asyncHandler(bulkUpdateInventory));
 router.get("/:centerId", auth, asyncHandler(getInventoryByCenter));
 router.post("/", auth, authorize("admin", "coordinator"), validate(inventoryItemSchema), asyncHandler(createInventoryItem));
-router.put("/bulk-update", auth, authorize("admin", "coordinator"), validate(bulkInventorySchema), asyncHandler(bulkUpdateInventory));
 router.put("/:id", auth, authorize("admin", "coordinator"), validate(inventoryUpdateSchema), asyncHandler(updateInventoryItem));
 
 export default router;
